@@ -1,0 +1,5 @@
+DOMAIN = "energy_optimizer"
+CONF_BATTERY_ENTITY = "battery_entity"
+CONF_PRICE_ENTITY = "price_entity"
+CONF_HEATER_ENTITY = "heater_entity"
+CONF_BATTERY_CAPACITY = "battery_capacity"
