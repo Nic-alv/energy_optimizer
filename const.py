@@ -5,7 +5,7 @@ DOMAIN = "energy_optimizer"
 # --- CONFIGURATION GLOBALE (Install) ---
 CONF_TARIFF_MODE = "tariff_mode"
 CONF_TARIFF_SENSOR = "tariff_sensor"
-CONF_OUTSIDE_TEMP_ENTITY = "outside_temp_entity" # Crucial pour le calcul COP
+CONF_OUTSIDE_TEMP_ENTITY = "outside_temp_entity" 
 CONF_BATTERY_ENTITY = "battery_entity"
 
 CONF_GAZ_PRICE_ENTITY = "gaz_price_entity"
@@ -20,12 +20,13 @@ MODE_TRIPLE = "Tri-horaire (Eco/Normal/Pointe)"
 CONF_PRICE_T1 = "price_t1"; CONF_METER_T1 = "meter_t1"
 CONF_PRICE_T2 = "price_t2"; CONF_METER_T2 = "meter_t2"
 CONF_PRICE_T3 = "price_t3"; CONF_METER_T3 = "meter_t3"
+
 CONF_INJ_PRICE_T1 = "inj_price_t1"; CONF_INJ_METER_T1 = "inj_meter_t1"
 CONF_INJ_PRICE_T2 = "inj_price_t2"; CONF_INJ_METER_T2 = "inj_meter_t2"
 CONF_INJ_PRICE_T3 = "inj_price_t3"; CONF_INJ_METER_T3 = "inj_meter_t3"
 
-# --- CONFIGURATION DES PIÈCES (NOUVEAU) ---
-CONF_ROOMS = "rooms" # La liste des pièces
+# --- CONFIGURATION DES PIÈCES (IMPORTANT) ---
+CONF_ROOMS = "rooms" 
 CONF_ROOM_NAME = "room_name"
 
 # Appareils
