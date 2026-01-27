@@ -1,0 +1,31 @@
+type: vertical-stack
+cards:
+  - type: tile
+    entity: climate.toshiba_salon # Remplace par ton entité réelle
+    name: Salon (Toshiba)
+    features:
+      - type: target-temperature
+  
+  - type: markdown
+    title: 🧠 Cerveau Énergétique - Salon
+    content: >
+      {% set s = states.sensor.optimizer_sejour %}
+      {% if s %}
+      **Source Active :** {{ s.state }}
+      
+      ---
+      
+      **🌡️ Conditions :**
+      * Temp Ext : {{ state_attr(s.entity_id, 'outside_temp') }} °C
+      * COP Actuel : **{{ state_attr(s.entity_id, 'current_cop') }}**
+      * Cible Int : {{ state_attr(s.entity_id, 'target_temp') }} °C
+      
+      **💰 Comparatif Coût (pour 1 kWh Chauffage) :**
+      * ⚡ Pompe à Chaleur : **{{ state_attr(s.entity_id, 'cost_ac_kwh') }} €**
+      * 🔥 Gaz Naturel : **{{ state_attr(s.entity_id, 'cost_gas_kwh') }} €**
+      
+      **🔎 Décision :**
+      _{{ state_attr(s.entity_id, 'reason') }}_
+      {% else %}
+      Chargement des données...
+      {% endif %}

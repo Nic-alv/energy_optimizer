@@ -130,6 +130,7 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
 
         room = self.rooms[self.current_room_id]
 
+        # Utilisation de NumberSelector pour éviter l'erreur "expected float"
         schema = vol.Schema({
             vol.Optional(CONF_CLIMATE_GAZ, default=room.get(CONF_CLIMATE_GAZ)): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
             vol.Optional(CONF_CLIMATE_AC, default=room.get(CONF_CLIMATE_AC)): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
@@ -137,8 +138,14 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             
             vol.Required(CONF_START_TIME, default=room.get(CONF_START_TIME, "07:00:00")): selector.TimeSelector(),
             vol.Required(CONF_END_TIME, default=room.get(CONF_END_TIME, "22:00:00")): selector.TimeSelector(),
-            vol.Required(CONF_COMFORT_TEMP, default=room.get(CONF_COMFORT_TEMP, 21.0)): float,
-            vol.Required(CONF_ECO_TEMP, default=room.get(CONF_ECO_TEMP, 18.0)): float,
+            
+            # --- MODIFICATION ICI : NumberSelector au lieu de float ---
+            vol.Required(CONF_COMFORT_TEMP, default=room.get(CONF_COMFORT_TEMP, 21.0)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=10, max=30, step=0.1, mode="box")
+            ),
+            vol.Required(CONF_ECO_TEMP, default=room.get(CONF_ECO_TEMP, 18.0)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=10, max=30, step=0.1, mode="box")
+            ),
         })
 
         return self.async_show_form(step_id="room_config", data_schema=schema)
@@ -150,12 +157,24 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
 
         room = self.rooms[self.current_room_id]
         
+        # --- MODIFICATION ICI AUSSI : NumberSelector pour les COP ---
+        # Cela permet d'écrire "3" et que ça compte comme "3.0"
         schema = vol.Schema({
-            vol.Required(CONF_COP_M15, default=room.get(CONF_COP_M15, 2.0)): float,
-            vol.Required(CONF_COP_M7,  default=room.get(CONF_COP_M7, 2.5)): float,
-            vol.Required(CONF_COP_0,   default=room.get(CONF_COP_0, 3.2)): float,
-            vol.Required(CONF_COP_7,   default=room.get(CONF_COP_7, 4.0)): float,
-            vol.Required(CONF_COP_15,  default=room.get(CONF_COP_15, 5.0)): float,
+            vol.Required(CONF_COP_M15, default=room.get(CONF_COP_M15, 2.0)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")
+            ),
+            vol.Required(CONF_COP_M7,  default=room.get(CONF_COP_M7, 2.5)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")
+            ),
+            vol.Required(CONF_COP_0,   default=room.get(CONF_COP_0, 3.2)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")
+            ),
+            vol.Required(CONF_COP_7,   default=room.get(CONF_COP_7, 4.0)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")
+            ),
+            vol.Required(CONF_COP_15,  default=room.get(CONF_COP_15, 5.0)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")
+            ),
         })
 
         return self.async_show_form(step_id="room_cop", data_schema=schema)
