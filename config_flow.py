@@ -1,5 +1,3 @@
-# /config/custom_components/energy_optimizer/config_flow.py
-
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
@@ -27,7 +25,7 @@ class EnergyOptimizerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_TARIFF_MODE, default=MODE_DUAL): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[MODE_SINGLE, MODE_DUAL, MODE_TRIPLE],
-                    mode=selector.SelectSelectorMode.DROPDOWN
+                    mode="dropdown"
                 )
             ),
             vol.Required(CONF_OUTSIDE_TEMP_ENTITY): selector.EntitySelector(
@@ -70,10 +68,10 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
     """Gestionnaire de pièces."""
 
     def __init__(self, config_entry):
-        """Initialisation sécurisée."""
-        self.config_entry = config_entry
+        # CORRECTION ICI : On ne touche pas à self.config_entry (propriété réservée)
+        # On stocke l'entrée dans une variable privée self._config_entry
+        self._config_entry = config_entry
         self.options = dict(config_entry.options)
-        # Utilisation de .get avec valeur par défaut pour éviter le crash si CONF_ROOMS n'existe pas
         self.rooms = self.options.get(CONF_ROOMS, [])
         self.current_room_id = None
 
@@ -104,7 +102,7 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             vol.Required("menu_selection"): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=select_options,
-                    mode=selector.SelectSelectorMode.LIST
+                    mode="list"
                 )
             )
         })
