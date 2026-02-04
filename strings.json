@@ -1,0 +1,87 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Energy Optimizer - Installation",
+        "description": "Bienvenue ! Commençons par configurer les capteurs globaux de votre maison.",
+        "data": {
+          "tariff_mode": "Mode Tarifaire",
+          "outside_temp_entity": "Sonde Température Extérieure",
+          "grid_power_entity": "Puissance Réseau (Watts) [Négatif = Injection]",
+          "tariff_sensor": "Capteur de Tarif en cours (Optionnel)",
+          "battery_entity": "Niveau de Batterie % (Optionnel)",
+          "gaz_price_entity": "Prix du Gaz (€/kWh)",
+          "gaz_meter_entity": "Compteur Gaz (m3 ou kWh)"
+        }
+      },
+      "prices": {
+        "title": "Configuration des Prix Électriques",
+        "description": "Veuillez indiquer les entités (Input Number ou Sensor) contenant vos prix au kWh.",
+        "data": {
+          "price_t1": "Prix Achat Tarif 1 (Nuit/Eco)",
+          "meter_t1": "Compteur Index T1 (Optionnel)",
+          "inj_price_t1": "Prix Injection Tarif 1",
+          "inj_meter_t1": "Compteur Injection T1 (Optionnel)",
+          "price_t2": "Prix Achat Tarif 2 (Jour/Normal)",
+          "meter_t2": "Compteur Index T2 (Optionnel)",
+          "inj_price_t2": "Prix Injection Tarif 2",
+          "inj_meter_t2": "Compteur Injection T2 (Optionnel)",
+          "price_t3": "Prix Achat Tarif 3 (Pointe)",
+          "meter_t3": "Compteur Index T3 (Optionnel)",
+          "inj_price_t3": "Prix Injection Tarif 3",
+          "inj_meter_t3": "Compteur Injection T3 (Optionnel)"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "menu": {
+        "title": "Tableau de Bord Énergétique",
+        "description": "Gérez vos pièces ou modifiez les réglages globaux.",
+        "data": {
+          "menu_selection": "Action à effectuer"
+        }
+      },
+      "global_settings": {
+        "title": "Réglages Globaux",
+        "description": "Affinez la gestion de l'autoconsommation.",
+        "data": {
+          "grid_power_entity": "Puissance Réseau (Watts) [Négatif = Injection]",
+          "battery_thresh_entity": "Seuil Batterie pour forcer chauffage (Input Number 0-100)"
+        }
+      },
+      "room_name": {
+        "title": "Nouvelle Pièce",
+        "description": "Donnez un nom unique à cette zone (ex: Salon, Bureau).",
+        "data": {
+          "room_name": "Nom de la pièce"
+        }
+      },
+      "room_config": {
+        "title": "Appareils de la Pièce",
+        "description": "Sélectionnez les équipements. Si une pièce n'a pas de gaz ou pas d'AC, laissez le champ vide.",
+        "data": {
+          "climate_gaz": "Thermostat Gaz (Radiateurs)",
+          "climate_ac": "Thermostat Air Co (PAC)",
+          "temp_sensor": "Sonde de Température Ambiante",
+          "target_temp_entity": "Entité de Consigne (Input Number ou Consigne)"
+        }
+      },
+      "room_cop": {
+        "title": "Performance de la Pompe à Chaleur",
+        "description": "Définissez la courbe de performance (COP) de votre unité AC pour cette pièce.",
+        "data": {
+          "cop_m15": "COP à -15°C",
+          "cop_m7": "COP à -7°C",
+          "cop_0": "COP à 0°C",
+          "cop_7": "COP à +7°C",
+          "cop_15": "COP à +15°C"
+        }
+      }
+    },
+    "error": {
+      "no_heater_selected": "Erreur : Vous devez sélectionner au moins une source de chauffage (Gaz ou AC)."
+    }
+  }
+}

@@ -23,13 +23,13 @@ class EnergyOptimizerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema({
             vol.Required(CONF_TARIFF_MODE, default=MODE_DUAL): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[MODE_SINGLE, MODE_DUAL, MODE_TRIPLE],
-                    mode="dropdown"
-                )
+                selector.SelectSelectorConfig(options=[MODE_SINGLE, MODE_DUAL, MODE_TRIPLE], mode="dropdown")
             ),
             vol.Required(CONF_OUTSIDE_TEMP_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+            ),
+            vol.Optional(CONF_GRID_POWER_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power")
             ),
             vol.Optional(CONF_TARIFF_SENSOR): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(CONF_BATTERY_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
@@ -54,10 +54,8 @@ class EnergyOptimizerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             schema_dict[vol.Optional(imk)] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 
         add_tariff_block(fields, "Tarif 1", CONF_PRICE_T1, CONF_METER_T1, CONF_INJ_PRICE_T1, CONF_INJ_METER_T1)
-
         if mode in [MODE_DUAL, MODE_TRIPLE]:
             add_tariff_block(fields, "Tarif 2", CONF_PRICE_T2, CONF_METER_T2, CONF_INJ_PRICE_T2, CONF_INJ_METER_T2)
-            
         if mode == MODE_TRIPLE:
             add_tariff_block(fields, "Tarif 3", CONF_PRICE_T3, CONF_METER_T3, CONF_INJ_PRICE_T3, CONF_INJ_METER_T3)
 
@@ -65,11 +63,9 @@ class EnergyOptimizerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
-    """Gestionnaire de pièces."""
+    """Gestionnaire Options."""
 
     def __init__(self, config_entry):
-        # CORRECTION ICI : On ne touche pas à self.config_entry (propriété réservée)
-        # On stocke l'entrée dans une variable privée self._config_entry
         self._config_entry = config_entry
         self.options = dict(config_entry.options)
         self.rooms = self.options.get(CONF_ROOMS, [])
@@ -84,13 +80,18 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             selected = user_input.get("menu_selection")
             if selected == "add_room":
                 return await self.async_step_room_name()
+            elif selected == "global_settings":
+                return await self.async_step_global_settings()
             elif selected.startswith("edit_"):
                 self.current_room_id = int(selected.split("_")[1])
                 return await self.async_step_room_config()
             else:
-                return self.async_create_entry(title="", data={CONF_ROOMS: self.rooms})
+                return self.async_create_entry(title="", data={**self.options, CONF_ROOMS: self.rooms})
 
-        select_options = [{"value": "add_room", "label": "➕ Ajouter une pièce"}]
+        select_options = [
+            {"value": "global_settings", "label": "⚙️ Réglages Globaux (Solaire/Batterie)"},
+            {"value": "add_room", "label": "➕ Ajouter une pièce"}
+        ]
         
         for idx, room in enumerate(self.rooms):
             name = room.get(CONF_ROOM_NAME, f"Pièce {idx+1}")
@@ -100,14 +101,29 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
 
         schema = vol.Schema({
             vol.Required("menu_selection"): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=select_options,
-                    mode="list"
-                )
+                selector.SelectSelectorConfig(options=select_options, mode="list")
             )
         })
-
         return self.async_show_form(step_id="menu", data_schema=schema)
+
+    async def async_step_global_settings(self, user_input=None):
+        """Configuration des capteurs globaux manquants."""
+        if user_input is not None:
+            self.options.update(user_input)
+            return await self.async_step_menu()
+
+        current_grid = self.options.get(CONF_GRID_POWER_ENTITY, self._config_entry.data.get(CONF_GRID_POWER_ENTITY))
+        current_batt_thresh = self.options.get(CONF_BATTERY_THRESH_ENTITY)
+
+        schema = vol.Schema({
+            vol.Optional(CONF_GRID_POWER_ENTITY, default=current_grid): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
+            vol.Optional(CONF_BATTERY_THRESH_ENTITY, default=current_batt_thresh): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["input_number", "number"])
+            ),
+        })
+        return self.async_show_form(step_id="global_settings", data_schema=schema)
 
     async def async_step_room_name(self, user_input=None):
         if user_input is not None:
@@ -115,66 +131,73 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             self.rooms.append(new_room)
             self.current_room_id = len(self.rooms) - 1
             return await self.async_step_room_config()
+        return self.async_show_form(step_id="room_name", data_schema=vol.Schema({vol.Required(CONF_ROOM_NAME): str}))
 
-        return self.async_show_form(
-            step_id="room_name", 
-            data_schema=vol.Schema({vol.Required(CONF_ROOM_NAME): str})
-        )
-
-    async def async_step_room_config(self, user_input=None):
+    async def async_step_room_config(self, user_input=None, errors=None):
+        """Configuration d'une pièce avec validation."""
         if user_input is not None:
+            # VALIDATION : On vérifie qu'au moins UN chauffage est choisi
+            clim_gaz = user_input.get(CONF_CLIMATE_GAZ)
+            clim_ac = user_input.get(CONF_CLIMATE_AC)
+            
+            if not clim_gaz and not clim_ac:
+                return await self.async_step_room_config(errors={"base": "no_heater_selected"})
+
             self.rooms[self.current_room_id].update(user_input)
-            if user_input.get(CONF_CLIMATE_AC):
+            
+            # Si un AC est sélectionné, on va configurer les COP
+            if clim_ac:
                 return await self.async_step_room_cop()
+            
+            # Sinon retour au menu
             return await self.async_step_menu()
 
         room = self.rooms[self.current_room_id]
 
-        # Utilisation de NumberSelector pour éviter l'erreur "expected float"
-        schema = vol.Schema({
-            vol.Optional(CONF_CLIMATE_GAZ, default=room.get(CONF_CLIMATE_GAZ)): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
-            vol.Optional(CONF_CLIMATE_AC, default=room.get(CONF_CLIMATE_AC)): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
-            vol.Required(CONF_TEMP_SENSOR, default=room.get(CONF_TEMP_SENSOR)): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", device_class="temperature")),
-            
-            vol.Required(CONF_START_TIME, default=room.get(CONF_START_TIME, "07:00:00")): selector.TimeSelector(),
-            vol.Required(CONF_END_TIME, default=room.get(CONF_END_TIME, "22:00:00")): selector.TimeSelector(),
-            
-            # --- MODIFICATION ICI : NumberSelector au lieu de float ---
-            vol.Required(CONF_COMFORT_TEMP, default=room.get(CONF_COMFORT_TEMP, 21.0)): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=10, max=30, step=0.1, mode="box")
-            ),
-            vol.Required(CONF_ECO_TEMP, default=room.get(CONF_ECO_TEMP, 18.0)): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=10, max=30, step=0.1, mode="box")
-            ),
-        })
+        # Note : On utilise vol.Optional sans valeur par défaut forcée à None si la clé n'existe pas,
+        # mais avec un check safe .get()
+        default_gaz = room.get(CONF_CLIMATE_GAZ)
+        default_ac = room.get(CONF_CLIMATE_AC)
+        
+        # Astuce : Pour que le champ soit vide par défaut et non pas "None" qui plante parfois le selector,
+        # on ne passe 'default' que s'il y a une valeur.
+        
+        schema_dict = {}
+        
+        # Gaz (Facultatif)
+        args_gaz = {}
+        if default_gaz: args_gaz['default'] = default_gaz
+        schema_dict[vol.Optional(CONF_CLIMATE_GAZ, **args_gaz)] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="climate")
+        )
 
-        return self.async_show_form(step_id="room_config", data_schema=schema)
+        # AC (Facultatif)
+        args_ac = {}
+        if default_ac: args_ac['default'] = default_ac
+        schema_dict[vol.Optional(CONF_CLIMATE_AC, **args_ac)] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="climate")
+        )
+
+        # Autres champs (Obligatoires)
+        schema_dict[vol.Required(CONF_TEMP_SENSOR, default=room.get(CONF_TEMP_SENSOR))] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+        )
+        schema_dict[vol.Required(CONF_TARGET_TEMP_ENTITY, default=room.get(CONF_TARGET_TEMP_ENTITY))] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain=["input_number", "number", "sensor"])
+        )
+
+        return self.async_show_form(step_id="room_config", data_schema=vol.Schema(schema_dict), errors=errors)
 
     async def async_step_room_cop(self, user_input=None):
         if user_input is not None:
             self.rooms[self.current_room_id].update(user_input)
             return await self.async_step_menu()
-
         room = self.rooms[self.current_room_id]
-        
-        # --- MODIFICATION ICI AUSSI : NumberSelector pour les COP ---
-        # Cela permet d'écrire "3" et que ça compte comme "3.0"
         schema = vol.Schema({
-            vol.Required(CONF_COP_M15, default=room.get(CONF_COP_M15, 2.0)): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")
-            ),
-            vol.Required(CONF_COP_M7,  default=room.get(CONF_COP_M7, 2.5)): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")
-            ),
-            vol.Required(CONF_COP_0,   default=room.get(CONF_COP_0, 3.2)): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")
-            ),
-            vol.Required(CONF_COP_7,   default=room.get(CONF_COP_7, 4.0)): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")
-            ),
-            vol.Required(CONF_COP_15,  default=room.get(CONF_COP_15, 5.0)): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")
-            ),
+            vol.Required(CONF_COP_M15, default=room.get(CONF_COP_M15, 2.0)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
+            vol.Required(CONF_COP_M7,  default=room.get(CONF_COP_M7, 2.5)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
+            vol.Required(CONF_COP_0,   default=room.get(CONF_COP_0, 3.2)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
+            vol.Required(CONF_COP_7,   default=room.get(CONF_COP_7, 4.0)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
+            vol.Required(CONF_COP_15,  default=room.get(CONF_COP_15, 5.0)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
         })
-
         return self.async_show_form(step_id="room_cop", data_schema=schema)

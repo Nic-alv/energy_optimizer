@@ -3,23 +3,19 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
-from datetime import timedelta, time
+from datetime import timedelta
 from .const import *
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(minutes=1)
 
-# On ajoute "sensor" à la liste des plateformes à charger
 PLATFORMS = ["sensor"] 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     hass.data.setdefault(DOMAIN, {})
     manager = EnergyManager(hass, entry)
     hass.data[DOMAIN][entry.entry_id] = manager
-    
-    # CHARGEMENT DES SENSORS
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
     entry.async_on_unload(entry.add_update_listener(update_listener))
     entry.async_on_unload(async_track_time_interval(hass, manager.update_loop, SCAN_INTERVAL))
     return True
@@ -38,33 +34,32 @@ class EnergyManager:
         self.entry = entry
         self.config = entry.data
         self.options = entry.options
-        self.sensors = [] # Liste des sensors abonnés
-        self.room_statuses = {} # Stockage des résultats
+        self.sensors = [] 
+        self.room_statuses = {} 
 
         self.mode = self.config.get(CONF_TARIFF_MODE, MODE_SINGLE)
         self.tariff_sensor = self.config.get(CONF_TARIFF_SENSOR)
         self.gaz_price_id = self.config[CONF_GAZ_PRICE_ENTITY]
         self.battery_id = self.config.get(CONF_BATTERY_ENTITY)
         self.outside_temp_id = self.config.get(CONF_OUTSIDE_TEMP_ENTITY)
+        
+        self.grid_power_id = self.options.get(CONF_GRID_POWER_ENTITY, self.config.get(CONF_GRID_POWER_ENTITY))
+        self.battery_thresh_id = self.options.get(CONF_BATTERY_THRESH_ENTITY)
+
         self.rooms = self.options.get(CONF_ROOMS, [])
         self.map_cons_price = {1: CONF_PRICE_T1, 2: CONF_PRICE_T2, 3: CONF_PRICE_T3}
         self.map_inj_price = {1: CONF_INJ_PRICE_T1, 2: CONF_INJ_PRICE_T2, 3: CONF_INJ_PRICE_T3}
 
     def register_sensor(self, sensor):
-        """Permet au sensor de s'enregistrer."""
         self.sensors.append(sensor)
 
     def get_room_status(self, room_idx):
-        """Permet au sensor de lire les données."""
         return self.room_statuses.get(room_idx, {})
 
     def _notify_sensors(self):
-        """Met à jour tous les sensors."""
         for sensor in self.sensors:
             sensor.update_from_manager()
 
-    # ... (Garder ici _get_entity_value, _get_active_tariff_index, _get_current_prices, _interpolate_cop, _get_target_temp_for_room INCHANGÉS) ...
-    # Copie-colle tes méthodes utilitaires ici (je ne les remets pas pour la lisibilité)
     def _get_entity_value(self, entity_id):
         if not entity_id: return None
         state = self.hass.states.get(entity_id)
@@ -110,21 +105,12 @@ class EnergyManager:
         return 4.0
 
     def _get_target_temp_for_room(self, room):
-        now = dt_util.now().time()
-        start_str = room.get(CONF_START_TIME, "07:00:00")
-        end_str = room.get(CONF_END_TIME, "22:00:00")
-        try:
-            start_t = time.fromisoformat(start_str)
-            end_t = time.fromisoformat(end_str)
-        except:
-            start_t = time(7,0); end_t = time(22,0)
-        in_comfort = False
-        if start_t <= end_t: in_comfort = start_t <= now <= end_t
-        else: in_comfort = start_t <= now or now <= end_t
-        return room.get(CONF_COMFORT_TEMP, 21.0) if in_comfort else room.get(CONF_ECO_TEMP, 18.0)
+        target_entity = room.get(CONF_TARGET_TEMP_ENTITY)
+        val = self._get_entity_value(target_entity)
+        if val is None: return 20.0
+        return val
 
     async def update_loop(self, now=None):
-        """Boucle Principale avec Mise à jour des Sensors."""
         tariff_idx, prix_elec_cons, prix_elec_inj = self._get_current_prices()
         prix_gaz = self._get_entity_value(self.gaz_price_id)
         if not prix_gaz: prix_gaz = 0.085
@@ -133,61 +119,105 @@ class EnergyManager:
         temp_ext = self._get_entity_value(self.outside_temp_id)
         if temp_ext is None: temp_ext = 7.0
 
+        # --- GESTION BATTERIE & SOLAIRE ---
         soc = 0; has_battery = False
+        battery_forced = False
+        thresh_val = self._get_entity_value(self.battery_thresh_id)
+        if thresh_val is None: thresh_val = 30.0
+
         if self.battery_id:
             val = self._get_entity_value(self.battery_id)
-            if val is not None: soc, has_battery = val, True
+            if val is not None:
+                soc = val
+                has_battery = True
+                if soc > thresh_val: battery_forced = True
+        
+        effective_elec_price = prix_elec_cons
+        is_solar_exporting = False
+        grid_power = self._get_entity_value(self.grid_power_id)
+        if grid_power is not None and grid_power < -500:
+             if prix_elec_inj is not None:
+                 effective_elec_price = prix_elec_inj
+                 is_solar_exporting = True
 
+        # --- BOUCLE PIÈCES ---
         for idx, room in enumerate(self.rooms):
-            room_name = room.get(CONF_ROOM_NAME, "Inconnue")
             clim_gaz = room.get(CONF_CLIMATE_GAZ)
             clim_ac = room.get(CONF_CLIMATE_AC)
-            
-            # --- CALCULS ---
             target_temp = self._get_target_temp_for_room(room)
-            cop = 4.0
-            cout_pac_kwh = 999.0
+            
+            # État initial
+            cop = 0
+            cout_pac_kwh = 0
             active_source = "Off"
-            reason = "Idle"
-            profitable = False
+            reason = "Aucun chauffage"
+            
+            # Variables de décision
+            should_heat_ac = False
+            should_heat_gas = False
+            ac_is_cheaper = False # Est-ce que la PAC est moins chère que le gaz ?
 
+            # 1. ANALYSE PAC (Si elle existe)
             if clim_ac:
                 cop = self._interpolate_cop(temp_ext, room)
                 safe_cop = cop if cop > 0.1 else 0.1
-                cout_pac_kwh = prix_elec_cons / safe_cop
-
-                if cout_pac_kwh < prix_gaz:
-                    profitable = True
-                    reason = f"PAC moins chère ({cout_pac_kwh:.3f}€ < {prix_gaz}€)"
-                elif has_battery and soc > 30:
-                    profitable = True
-                    reason = f"Batterie dispo ({soc}%)"
+                cout_pac_kwh = effective_elec_price / safe_cop
+                
+                # Est-ce que la PAC est financièrement intéressante ?
+                if battery_forced:
+                    ac_is_cheaper = True
+                    reason = f"Batterie pleine ({soc}%)"
+                elif cout_pac_kwh < prix_gaz:
+                    ac_is_cheaper = True
+                    if is_solar_exporting: reason = f"Solaire (Export {grid_power}W)"
+                    else: reason = f"PAC moins chère ({cout_pac_kwh:.3f}€ < {prix_gaz}€)"
                 else:
+                    ac_is_cheaper = False
                     reason = f"Gaz moins cher ({prix_gaz}€ < {cout_pac_kwh:.3f}€)"
 
-            # --- DÉCISION ---
-            if profitable and clim_ac:
+            # 2. PRISE DE DÉCISION (Logique à 3 cas)
+            
+            # CAS A : Les deux chauffages existent
+            if clim_ac and clim_gaz:
+                if ac_is_cheaper:
+                    should_heat_ac = True
+                else:
+                    should_heat_gas = True
+            
+            # CAS B : Seulement l'AC existe
+            elif clim_ac and not clim_gaz:
+                should_heat_ac = True
+                if not ac_is_cheaper:
+                    reason = f"Seule source dispo (AC) - Coût: {cout_pac_kwh:.3f}€"
+            
+            # CAS C : Seulement le Gaz existe
+            elif clim_gaz and not clim_ac:
+                should_heat_gas = True
+                reason = "Seule source dispo (Gaz)"
+
+            # 3. APPLICATION
+            if should_heat_ac:
                 active_source = "AC (Toshiba)"
                 await self._set_climate(clim_ac, "heat", target_temp)
                 if clim_gaz: await self._set_climate(clim_gaz, "off", None)
-            elif clim_gaz:
+            
+            elif should_heat_gas:
                 active_source = "Gaz"
                 await self._set_climate(clim_gaz, "heat", target_temp)
                 if clim_ac: await self._set_climate(clim_ac, "off", None)
             
-            # --- SAUVEGARDE STATUS POUR LE SENSOR ---
+            # Sauvegarde Sensor
             self.room_statuses[idx] = {
                 "active_source": active_source,
                 "target_temp": target_temp,
-                "cop": round(cop, 2),
-                "cost_ac": round(cout_pac_kwh, 4),
+                "cop": round(cop, 2) if clim_ac else 0,
+                "cost_ac": round(cout_pac_kwh, 4) if clim_ac else 0,
                 "cost_gas": round(prix_gaz, 4),
-                "profitable": profitable,
+                "profitable": ac_is_cheaper, # Note: ceci indique juste si AC est plus rentable que Gaz
                 "outside_temp": temp_ext,
                 "reason": reason
             }
 
-        # On notifie HA que les données ont changé
         self._notify_sensors()
 
     async def _set_climate(self, entity_id, mode, temp):
