@@ -38,3 +38,6 @@ CONF_TEMP_SENSOR = "temp_sensor"
 # Courbe COP
 CONF_COP_M15 = "cop_m15"; CONF_COP_M7 = "cop_m7"; CONF_COP_0 = "cop_0"
 CONF_COP_7 = "cop_7"; CONF_COP_15 = "cop_15"
+
+# Délai minimum de fonctionnement AC (anti-cyclage)
+CONF_AC_MIN_RUNTIME = "ac_min_runtime"

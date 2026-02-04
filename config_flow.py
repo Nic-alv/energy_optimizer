@@ -207,5 +207,6 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             vol.Required(CONF_COP_0,   default=room.get(CONF_COP_0, 3.2)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
             vol.Required(CONF_COP_7,   default=room.get(CONF_COP_7, 4.0)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
             vol.Required(CONF_COP_15,  default=room.get(CONF_COP_15, 5.0)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
+            vol.Required(CONF_AC_MIN_RUNTIME, default=room.get(CONF_AC_MIN_RUNTIME, 5)): selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=60, step=1, mode="slider", unit_of_measurement="min")),
         })
         return self.async_show_form(step_id="room_cop", data_schema=schema)

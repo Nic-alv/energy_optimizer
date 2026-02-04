@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.components.climate.const import HVACMode
-from datetime import timedelta
+from datetime import timedelta, datetime
 from .const import *
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,6 +39,9 @@ class EnergyManager:
         self.sensors = [] 
         self.virtual_climates = {} 
         self.room_statuses = {} 
+        
+        # Tracking du temps de fonctionnement AC (anti-cyclage)
+        self.ac_start_times = {}  # {room_idx: datetime ou None} 
 
         self.mode = self.config.get(CONF_TARIFF_MODE, MODE_SINGLE)
         self.tariff_sensor = self.config.get(CONF_TARIFF_SENSOR)
@@ -77,6 +80,17 @@ class EnergyManager:
             try: return float(state.state)
             except ValueError: return None
         return None
+
+    def _can_stop_ac(self, room_idx, room_config):
+        """Vérifie si l'AC peut s'arrêter (délai minimum respecté)."""
+        start_time = self.ac_start_times.get(room_idx)
+        if start_time is None:
+            return True  # Pas démarrée, peut rester off
+        
+        min_runtime = room_config.get(CONF_AC_MIN_RUNTIME, 5)  # Défaut 5 minutes
+        elapsed = (datetime.now() - start_time).total_seconds() / 60  # en minutes
+        
+        return elapsed >= min_runtime
 
     def _is_summer_mode(self):
         """Vérifie si le switch Été est activé."""
@@ -222,28 +236,57 @@ class EnergyManager:
                         reason = f"Solaire dispo (Export {grid_power}W) ou Bat ({soc}%)"
                         await self._set_climate(clim_ac, "cool", target_temp)
                         v_climate.update_action_from_manager(True)
+                        # Enregistrer le démarrage
+                        if self.ac_start_times.get(idx) is None:
+                            self.ac_start_times[idx] = datetime.now()
                     else:
                         # Pas assez de soleil -> On coupe pour économiser
                         active_source = "Attente Soleil"
                         reason = "Pas assez de production solaire"
                         await self._set_climate(clim_ac, "off", None)
                         v_climate.update_action_from_manager(False)
+                        self.ac_start_times[idx] = None
                 else:
-                    # Température cible atteinte
-                    active_source = "Temp OK"
-                    reason = f"Cible atteinte ({current_temp} <= {target_temp})"
-                    await self._set_climate(clim_ac, "off", None)
-                    v_climate.update_action_from_manager(False)
+                    # Température cible atteinte - Vérifier délai minimum
+                    if not self._can_stop_ac(idx, room):
+                        # AC doit continuer (délai non écoulé)
+                        min_runtime = room.get(CONF_AC_MIN_RUNTIME, 5)
+                        elapsed = (datetime.now() - self.ac_start_times[idx]).total_seconds() / 60
+                        active_source = "AC (Cooling - Min Runtime)"
+                        reason = f"Délai minimum ({elapsed:.1f}/{min_runtime} min)"
+                        await self._set_climate(clim_ac, "cool", target_temp)
+                        v_climate.update_action_from_manager(True)
+                    else:
+                        # Délai respecté, on peut couper
+                        active_source = "Temp OK"
+                        reason = f"Cible atteinte ({current_temp} <= {target_temp})"
+                        await self._set_climate(clim_ac, "off", None)
+                        v_climate.update_action_from_manager(False)
+                        self.ac_start_times[idx] = None
 
             # === LOGIQUE HIVER (CHAUFFAGE) ===
             else:
                 # Hystérésis Chauffage
                 if current_temp is not None and current_temp >= (target_temp + self.hysteresis):
-                    if clim_ac: await self._set_climate(clim_ac, "off", None)
-                    if clim_gaz: await self._set_climate(clim_gaz, "off", None)
-                    v_climate.update_action_from_manager(False)
-                    active_source = "Off (Temp OK)"
-                    reason = f"Cible atteinte (+hystérésis)"
+                    # Vérifier si AC est active et si délai minimum est respecté
+                    ac_state = self.hass.states.get(clim_ac) if clim_ac else None
+                    ac_is_running = ac_state and ac_state.state in ["heat", "cool"]
+                    
+                    if ac_is_running and not self._can_stop_ac(idx, room):
+                        # AC doit continuer (délai non écoulé)
+                        min_runtime = room.get(CONF_AC_MIN_RUNTIME, 5)
+                        elapsed = (datetime.now() - self.ac_start_times[idx]).total_seconds() / 60
+                        active_source = "AC (Heat - Min Runtime)"
+                        reason = f"Délai minimum ({elapsed:.1f}/{min_runtime} min)"
+                        v_climate.update_action_from_manager(True)
+                    else:
+                        # Peut couper normalement
+                        if clim_ac: await self._set_climate(clim_ac, "off", None)
+                        if clim_gaz: await self._set_climate(clim_gaz, "off", None)
+                        v_climate.update_action_from_manager(False)
+                        active_source = "Off (Temp OK)"
+                        reason = f"Cible atteinte (+hystérésis)"
+                        self.ac_start_times[idx] = None
                 
                 else:
                     # Calcul rentabilité (Code Hiver existant)
@@ -279,21 +322,22 @@ class EnergyManager:
                         await self._set_climate(clim_ac, "heat", target_temp)
                         if clim_gaz: await self._set_climate(clim_gaz, "off", None)
                         v_climate.update_action_from_manager(True)
+                        # Enregistrer le démarrage
+                        if self.ac_start_times.get(idx) is None:
+                            self.ac_start_times[idx] = datetime.now()
                     elif should_heat_gas:
                         active_source = "Gaz"
                         await self._set_climate(clim_gaz, "heat", target_temp)
                         if clim_ac: await self._set_climate(clim_ac, "off", None)
                         v_climate.update_action_from_manager(True)
+                        self.ac_start_times[idx] = None  # Reset si on passe au gaz
             
             # Sauvegarde Sensor
             self.room_statuses[idx] = {
                 "active_source": active_source,
                 "target_temp": target_temp,
                 "outside_temp": temp_ext,
-                "reason": reason,
-                "cop": cop, 
-                "cost_ac": cout_pac_kwh,
-                "cost_gas": prix_gaz
+                "reason": reason
             }
 
         self._notify_sensors()

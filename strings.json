@@ -84,7 +84,8 @@
           "cop_m7": "COP à -7°C",
           "cop_0": "COP à 0°C",
           "cop_7": "COP à +7°C",
-          "cop_15": "COP à +15°C"
+          "cop_15": "COP à +15°C",
+          "ac_min_runtime": "Durée minimum de fonctionnement AC (anti-cyclage)"
         }
       }
     },
