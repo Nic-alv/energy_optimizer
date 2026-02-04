@@ -161,6 +161,29 @@ class EnergyManager:
             
             target_temp = v_climate.target_temperature
             current_temp = self._get_entity_value(room.get(CONF_TEMP_SENSOR))
+
+            # Vérification capteur température
+            if current_temp is None:
+                room_name = room.get(CONF_ROOM_NAME, f"Pièce {idx}")
+                _LOGGER.warning(
+                    f"Room '{room_name}': Capteur de température indisponible ou invalide. "
+                    f"Passage en mode sécurité (chauffage désactivé)."
+                )
+                # Désactive tous les chauffages par sécurité
+                if clim_ac:
+                    await self._set_climate(clim_ac, "off", None)
+                if clim_gaz:
+                    await self._set_climate(clim_gaz, "off", None)
+                v_climate.update_action_from_manager(False)
+                
+                # Mise à jour du sensor avec info erreur
+                self.room_statuses[idx] = {
+                    "active_source": "Error",
+                    "target_temp": target_temp,
+                    "outside_temp": temp_ext,
+                    "reason": "Capteur température indisponible"
+                }
+                continue  # Passe à la pièce suivante
             
             # Gestion de l'affichage du thermostat virtuel (Mode forcé selon saison)
             if is_summer and v_climate.hvac_mode != HVACMode.OFF:
@@ -267,7 +290,10 @@ class EnergyManager:
                 "active_source": active_source,
                 "target_temp": target_temp,
                 "outside_temp": temp_ext,
-                "reason": reason
+                "reason": reason,
+                "cop": cop, 
+                "cost_ac": cout_pac_kwh,
+                "cost_gas": prix_gaz
             }
 
         self._notify_sensors()
