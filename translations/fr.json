@@ -45,10 +45,12 @@
       },
       "global_settings": {
         "title": "Réglages Globaux",
-        "description": "Affinez la gestion de l'autoconsommation.",
+        "description": "Affinez la gestion de l'autoconsommation et des modes.",
         "data": {
+          "summer_mode_entity": "Interrupteur Mode Été (Hiver=Off / Été=On)",
           "grid_power_entity": "Puissance Réseau (Watts) [Négatif = Injection]",
-          "battery_thresh_entity": "Seuil Batterie pour forcer chauffage (Input Number 0-100)"
+          "battery_thresh_entity": "Seuil Batterie pour forcer (Input Number 0-100)",
+          "hysteresis": "Marge de coupure (Hystérésis) en °C"
         }
       },
       "room_name": {
@@ -64,8 +66,7 @@
         "data": {
           "climate_gaz": "Thermostat Gaz (Radiateurs)",
           "climate_ac": "Thermostat Air Co (PAC)",
-          "temp_sensor": "Sonde de Température Ambiante",
-          "target_temp_entity": "Entité de Consigne (Input Number ou Consigne)"
+          "temp_sensor": "Sonde de Température Ambiante"
         }
       },
       "room_cop": {

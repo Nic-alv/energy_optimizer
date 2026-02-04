@@ -9,6 +9,10 @@ CONF_OUTSIDE_TEMP_ENTITY = "outside_temp_entity"
 CONF_BATTERY_ENTITY = "battery_entity"
 CONF_GRID_POWER_ENTITY = "grid_power_entity"
 CONF_BATTERY_THRESH_ENTITY = "battery_thresh_entity"
+CONF_HYSTERESIS = "hysteresis"
+
+# NOUVEAU : Entité Switch Été/Hiver
+CONF_SUMMER_MODE_ENTITY = "summer_mode_entity"
 
 CONF_GAZ_PRICE_ENTITY = "gaz_price_entity"
 CONF_GAZ_METER_ENTITY = "gaz_meter_entity"
@@ -30,8 +34,6 @@ CONF_ROOM_NAME = "room_name"
 CONF_CLIMATE_GAZ = "climate_gaz"
 CONF_CLIMATE_AC = "climate_ac"
 CONF_TEMP_SENSOR = "temp_sensor"
-
-# (Suppression de CONF_TARGET_TEMP_ENTITY, on n'en a plus besoin)
 
 # Courbe COP
 CONF_COP_M15 = "cop_m15"; CONF_COP_M7 = "cop_m7"; CONF_COP_0 = "cop_0"

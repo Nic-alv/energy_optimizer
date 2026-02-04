@@ -92,14 +92,30 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             self.options.update(user_input)
             return await self.async_step_menu()
+
         current_grid = self.options.get(CONF_GRID_POWER_ENTITY, self._config_entry.data.get(CONF_GRID_POWER_ENTITY))
         current_batt_thresh = self.options.get(CONF_BATTERY_THRESH_ENTITY)
+        current_hysteresis = self.options.get(CONF_HYSTERESIS, 0.5)
+        current_summer_mode = self.options.get(CONF_SUMMER_MODE_ENTITY)
+
         schema = vol.Schema({
-            vol.Optional(CONF_GRID_POWER_ENTITY, default=current_grid): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", device_class="power")),
-            vol.Optional(CONF_BATTERY_THRESH_ENTITY, default=current_batt_thresh): selector.EntitySelector(selector.EntitySelectorConfig(domain=["input_number", "number"])),
+            # NOUVEAU : Switch Été
+            vol.Optional(CONF_SUMMER_MODE_ENTITY, default=current_summer_mode): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["input_boolean", "switch", "input_select"])
+            ),
+            vol.Optional(CONF_GRID_POWER_ENTITY, default=current_grid): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
+            vol.Optional(CONF_BATTERY_THRESH_ENTITY, default=current_batt_thresh): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["input_number", "number"])
+            ),
+            vol.Required(CONF_HYSTERESIS, default=current_hysteresis): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0.1, max=5.0, step=0.1, mode="slider", unit_of_measurement="°C")
+            ),
         })
         return self.async_show_form(step_id="global_settings", data_schema=schema)
 
+    # ... (Le reste des fonctions room_name, room_config, room_cop est identique à l'étape précédente) ...
     async def async_step_room_name(self, user_input=None):
         if user_input is not None:
             self.rooms.append({CONF_ROOM_NAME: user_input[CONF_ROOM_NAME]})
@@ -114,18 +130,13 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             self.rooms[self.current_room_id].update(user_input)
             if user_input.get(CONF_CLIMATE_AC): return await self.async_step_room_cop()
             return await self.async_step_menu()
-
         room = self.rooms[self.current_room_id]
         schema_dict = {}
-        
         args_gaz = {'default': room.get(CONF_CLIMATE_GAZ)} if room.get(CONF_CLIMATE_GAZ) else {}
         schema_dict[vol.Optional(CONF_CLIMATE_GAZ, **args_gaz)] = selector.EntitySelector(selector.EntitySelectorConfig(domain="climate"))
-
         args_ac = {'default': room.get(CONF_CLIMATE_AC)} if room.get(CONF_CLIMATE_AC) else {}
         schema_dict[vol.Optional(CONF_CLIMATE_AC, **args_ac)] = selector.EntitySelector(selector.EntitySelectorConfig(domain="climate"))
-
         schema_dict[vol.Required(CONF_TEMP_SENSOR, default=room.get(CONF_TEMP_SENSOR))] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", device_class="temperature"))
-        
         return self.async_show_form(step_id="room_config", data_schema=vol.Schema(schema_dict), errors=errors)
 
     async def async_step_room_cop(self, user_input=None):

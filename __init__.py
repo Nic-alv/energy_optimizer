@@ -1,3 +1,5 @@
+# /config/custom_components/energy_optimizer/__init__.py
+
 import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -9,7 +11,6 @@ from .const import *
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(minutes=1)
 
-# ON CHARGE MAINTENANT LES 2 PLATEFORMES
 PLATFORMS = ["climate", "sensor"] 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
@@ -36,7 +37,7 @@ class EnergyManager:
         self.config = entry.data
         self.options = entry.options
         self.sensors = [] 
-        self.virtual_climates = {} # Stockage des thermostats virtuels
+        self.virtual_climates = {} 
         self.room_statuses = {} 
 
         self.mode = self.config.get(CONF_TARIFF_MODE, MODE_SINGLE)
@@ -47,6 +48,10 @@ class EnergyManager:
         
         self.grid_power_id = self.options.get(CONF_GRID_POWER_ENTITY, self.config.get(CONF_GRID_POWER_ENTITY))
         self.battery_thresh_id = self.options.get(CONF_BATTERY_THRESH_ENTITY)
+        self.hysteresis = self.options.get(CONF_HYSTERESIS, 0.5)
+        
+        # NOUVEAU : Switch Mode Été
+        self.summer_mode_id = self.options.get(CONF_SUMMER_MODE_ENTITY)
 
         self.rooms = self.options.get(CONF_ROOMS, [])
         self.map_cons_price = {1: CONF_PRICE_T1, 2: CONF_PRICE_T2, 3: CONF_PRICE_T3}
@@ -56,7 +61,6 @@ class EnergyManager:
         self.sensors.append(sensor)
 
     def register_virtual_climate(self, room_idx, climate_entity):
-        """Enregistre le thermostat virtuel."""
         self.virtual_climates[room_idx] = climate_entity
 
     def get_room_status(self, room_idx):
@@ -73,6 +77,13 @@ class EnergyManager:
             try: return float(state.state)
             except ValueError: return None
         return None
+
+    def _is_summer_mode(self):
+        """Vérifie si le switch Été est activé."""
+        if not self.summer_mode_id: return False
+        state = self.hass.states.get(self.summer_mode_id)
+        if state and state.state == "on": return True
+        return False
 
     def _get_active_tariff_index(self):
         if self.mode == MODE_SINGLE: return 1
@@ -114,7 +125,9 @@ class EnergyManager:
         if prix_elec_cons is None: return
 
         temp_ext = self._get_entity_value(self.outside_temp_id)
-        if temp_ext is None: temp_ext = 7.0
+        if temp_ext is None: temp_ext = 25.0
+
+        is_summer = self._is_summer_mode()
 
         # Batterie
         soc = 0; has_battery = False
@@ -128,10 +141,11 @@ class EnergyManager:
                 has_battery = True
                 if soc > thresh_val: battery_forced = True
         
-        # Solaire
+        # Solaire (Production excédentaire)
         effective_elec_price = prix_elec_cons
         is_solar_exporting = False
         grid_power = self._get_entity_value(self.grid_power_id)
+        # On considère qu'il y a assez de soleil si on injecte > 500W
         if grid_power is not None and grid_power < -500:
              if prix_elec_inj is not None:
                  effective_elec_price = prix_elec_inj
@@ -142,76 +156,116 @@ class EnergyManager:
             clim_gaz = room.get(CONF_CLIMATE_GAZ)
             clim_ac = room.get(CONF_CLIMATE_AC)
             
-            # --- INTERACTION AVEC LE THERMOSTAT VIRTUEL ---
             v_climate = self.virtual_climates.get(idx)
-            if not v_climate: continue # Pas encore chargé
+            if not v_climate: continue
             
             target_temp = v_climate.target_temperature
-            is_on = v_climate.hvac_mode == HVACMode.HEAT
+            current_temp = self._get_entity_value(room.get(CONF_TEMP_SENSOR))
+            
+            # Gestion de l'affichage du thermostat virtuel (Mode forcé selon saison)
+            if is_summer and v_climate.hvac_mode != HVACMode.OFF:
+                 if v_climate.hvac_mode != HVACMode.COOL:
+                     await v_climate.async_set_hvac_mode(HVACMode.COOL)
+            elif not is_summer and v_climate.hvac_mode != HVACMode.OFF:
+                 if v_climate.hvac_mode != HVACMode.HEAT:
+                     await v_climate.async_set_hvac_mode(HVACMode.HEAT)
 
-            cop = 0; cout_pac_kwh = 0; active_source = "Off"
+            is_on = v_climate.hvac_mode in [HVACMode.HEAT, HVACMode.COOL]
+            
+            active_source = "Off"
             reason = "Off"
             profitable = False
-            
-            # Si le thermostat virtuel est OFF, on coupe tout
+
+            # === SI THERMOSTAT ÉTEINT ===
             if not is_on:
                 if clim_ac: await self._set_climate(clim_ac, "off", None)
                 if clim_gaz: await self._set_climate(clim_gaz, "off", None)
                 v_climate.update_action_from_manager(False)
-            else:
-                # Logique de calcul (Identique à avant)
-                should_heat_ac = False
-                should_heat_gas = False
-                ac_is_cheaper = False
 
-                if clim_ac:
-                    cop = self._interpolate_cop(temp_ext, room)
-                    safe_cop = cop if cop > 0.1 else 0.1
-                    cout_pac_kwh = effective_elec_price / safe_cop
-                    
-                    if battery_forced:
-                        ac_is_cheaper = True
-                        reason = f"Batterie pleine ({soc}%)"
-                    elif cout_pac_kwh < prix_gaz:
-                        ac_is_cheaper = True
-                        if is_solar_exporting: reason = f"Solaire (Export {grid_power}W)"
-                        else: reason = f"PAC moins chère ({cout_pac_kwh:.3f}€ < {prix_gaz}€)"
-                    else:
-                        ac_is_cheaper = False
-                        reason = f"Gaz moins cher ({prix_gaz}€ < {cout_pac_kwh:.3f}€)"
-
-                # Decision
-                if clim_ac and clim_gaz:
-                    if ac_is_cheaper: should_heat_ac = True
-                    else: should_heat_gas = True
-                elif clim_ac and not clim_gaz:
-                    should_heat_ac = True
-                    if not ac_is_cheaper: reason = f"Seule source (AC)"
-                elif clim_gaz and not clim_ac:
-                    should_heat_gas = True
-                    reason = "Seule source (Gaz)"
-
-                # Application
-                if should_heat_ac:
-                    active_source = "AC (Toshiba)"
-                    await self._set_climate(clim_ac, "heat", target_temp)
-                    if clim_gaz: await self._set_climate(clim_gaz, "off", None)
-                    v_climate.update_action_from_manager(True) # Dit au thermostat qu'on chauffe
+            # === LOGIQUE ÉTÉ (REFROIDISSEMENT) ===
+            elif is_summer:
+                # Gaz toujours OFF en été
+                if clim_gaz: await self._set_climate(clim_gaz, "off", None)
                 
-                elif should_heat_gas:
-                    active_source = "Gaz"
-                    await self._set_climate(clim_gaz, "heat", target_temp)
+                if not clim_ac:
+                    reason = "Pas d'AC dans cette pièce"
+                    v_climate.update_action_from_manager(False)
+                
+                # Besoin de froid ? (Temp > Target)
+                elif current_temp is not None and current_temp > target_temp:
+                    # CONDITION SOLAIRE / BATTERIE (Strictement demandé)
+                    if is_solar_exporting or battery_forced:
+                        active_source = "AC (Cooling)"
+                        reason = f"Solaire dispo (Export {grid_power}W) ou Bat ({soc}%)"
+                        await self._set_climate(clim_ac, "cool", target_temp)
+                        v_climate.update_action_from_manager(True)
+                    else:
+                        # Pas assez de soleil -> On coupe pour économiser
+                        active_source = "Attente Soleil"
+                        reason = "Pas assez de production solaire"
+                        await self._set_climate(clim_ac, "off", None)
+                        v_climate.update_action_from_manager(False)
+                else:
+                    # Température cible atteinte
+                    active_source = "Temp OK"
+                    reason = f"Cible atteinte ({current_temp} <= {target_temp})"
+                    await self._set_climate(clim_ac, "off", None)
+                    v_climate.update_action_from_manager(False)
+
+            # === LOGIQUE HIVER (CHAUFFAGE) ===
+            else:
+                # Hystérésis Chauffage
+                if current_temp is not None and current_temp >= (target_temp + self.hysteresis):
                     if clim_ac: await self._set_climate(clim_ac, "off", None)
-                    v_climate.update_action_from_manager(True)
+                    if clim_gaz: await self._set_climate(clim_gaz, "off", None)
+                    v_climate.update_action_from_manager(False)
+                    active_source = "Off (Temp OK)"
+                    reason = f"Cible atteinte (+hystérésis)"
+                
+                else:
+                    # Calcul rentabilité (Code Hiver existant)
+                    should_heat_ac = False; should_heat_gas = False; ac_is_cheaper = False
+                    cop = 0; cout_pac_kwh = 0
+
+                    if clim_ac:
+                        cop = self._interpolate_cop(temp_ext, room)
+                        safe_cop = cop if cop > 0.1 else 0.1
+                        cout_pac_kwh = effective_elec_price / safe_cop
+                        
+                        if battery_forced:
+                            ac_is_cheaper = True
+                            reason = f"Batterie pleine ({soc}%)"
+                        elif cout_pac_kwh < prix_gaz:
+                            ac_is_cheaper = True
+                            if is_solar_exporting: reason = f"Solaire (Export {grid_power}W)"
+                            else: reason = f"PAC moins chère"
+                        else:
+                            ac_is_cheaper = False
+                            reason = f"Gaz moins cher"
+
+                    if clim_ac and clim_gaz:
+                        if ac_is_cheaper: should_heat_ac = True
+                        else: should_heat_gas = True
+                    elif clim_ac and not clim_gaz:
+                        should_heat_ac = True
+                    elif clim_gaz and not clim_ac:
+                        should_heat_gas = True
+
+                    if should_heat_ac:
+                        active_source = "AC (Heat)"
+                        await self._set_climate(clim_ac, "heat", target_temp)
+                        if clim_gaz: await self._set_climate(clim_gaz, "off", None)
+                        v_climate.update_action_from_manager(True)
+                    elif should_heat_gas:
+                        active_source = "Gaz"
+                        await self._set_climate(clim_gaz, "heat", target_temp)
+                        if clim_ac: await self._set_climate(clim_ac, "off", None)
+                        v_climate.update_action_from_manager(True)
             
             # Sauvegarde Sensor
             self.room_statuses[idx] = {
                 "active_source": active_source,
                 "target_temp": target_temp,
-                "cop": round(cop, 2) if clim_ac else 0,
-                "cost_ac": round(cout_pac_kwh, 4) if clim_ac else 0,
-                "cost_gas": round(prix_gaz, 4),
-                "profitable": ac_is_cheaper,
                 "outside_temp": temp_ext,
                 "reason": reason
             }
@@ -223,7 +277,7 @@ class EnergyManager:
         if not state: return
         if state.state != mode:
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": mode})
-        if mode == "heat" and temp is not None:
+        if mode in ["heat", "cool"] and temp is not None:
             try:
                 if float(state.attributes.get("temperature", 0)) != temp:
                     await self.hass.services.async_call("climate", "set_temperature", {"entity_id": entity_id, "temperature": temp})
