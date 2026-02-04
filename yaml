@@ -1,31 +1,511 @@
-type: vertical-stack
+type: custom:vertical-stack-in-card
 cards:
-  - type: tile
-    entity: climate.toshiba_salon # Remplace par ton entité réelle
-    name: Salon (Toshiba)
-    features:
-      - type: target-temperature
-  
-  - type: markdown
-    title: 🧠 Cerveau Énergétique - Salon
-    content: >
-      {% set s = states.sensor.optimizer_sejour %}
-      {% if s %}
-      **Source Active :** {{ s.state }}
-      
-      ---
-      
-      **🌡️ Conditions :**
-      * Temp Ext : {{ state_attr(s.entity_id, 'outside_temp') }} °C
-      * COP Actuel : **{{ state_attr(s.entity_id, 'current_cop') }}**
-      * Cible Int : {{ state_attr(s.entity_id, 'target_temp') }} °C
-      
-      **💰 Comparatif Coût (pour 1 kWh Chauffage) :**
-      * ⚡ Pompe à Chaleur : **{{ state_attr(s.entity_id, 'cost_ac_kwh') }} €**
-      * 🔥 Gaz Naturel : **{{ state_attr(s.entity_id, 'cost_gas_kwh') }} €**
-      
-      **🔎 Décision :**
-      _{{ state_attr(s.entity_id, 'reason') }}_
-      {% else %}
-      Chargement des données...
+  - type: custom:mushroom-template-card
+    primary: Energy Optimizer
+    secondary: |
+      {{ states.climate | selectattr('entity_id', 'search', 'optimizer') 
+         | selectattr('state', 'eq', 'heat') | list | count }} en chauffe • 
+      {{ states.climate | selectattr('entity_id', 'search', 'optimizer') 
+         | selectattr('state', 'eq', 'cool') | list | count }} en clim
+    icon: mdi:home-lightning-bolt
+    color: >
+      {% set heating = states.climate | selectattr('entity_id', 'search',
+      'optimizer') 
+                       | selectattr('state', 'eq', 'heat') | list | count %}
+      {% set cooling = states.climate | selectattr('entity_id', 'search',
+      'optimizer') 
+                       | selectattr('state', 'eq', 'cool') | list | count %}
+      {% if heating > 0 %} orange
+
+      {% elif cooling > 0 %} blue
+
+      {% else %} grey
+
       {% endif %}
+    features_position: bottom
+    card_mod:
+      style: |
+        ha-card {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          --icon-symbol-size: 50px;
+        }
+        ha-card:hover {
+          transform: scale(1.02);
+          transition: 0.3s;
+        }
+  - type: custom:layout-card
+    layout_type: grid
+    layout_options:
+      grid-template-columns: repeat(4, 1fr)
+    cards:
+      - type: custom:mushroom-template-card
+        primary: |
+          {{ states.climate | selectattr('entity_id', 'search', 'optimizer') 
+             | rejectattr('state', 'eq', 'off') | list | count }}
+        secondary: Actives
+        icon: mdi:fire
+        icon_color: orange
+        layout: vertical
+        card_mod:
+          style: |
+            ha-card {
+              background: rgba(255, 152, 0, 0.1);
+            }
+      - type: custom:mushroom-template-card
+        primary: |
+          {{ states.sensor | selectattr('entity_id', 'search', 'optimizer') 
+             | selectattr('state', 'eq', 'Error') | list | count }}
+        secondary: Erreurs
+        icon: mdi:alert-circle
+        icon_color: red
+        layout: vertical
+        card_mod:
+          style: |
+            ha-card {
+              background: rgba(244, 67, 54, 0.1);
+            }
+      - type: custom:mushroom-template-card
+        primary: >
+          {% set temps = states.climate | selectattr('entity_id', 'search',
+          'optimizer') 
+                        | selectattr('attributes.current_temperature', 'defined')
+                        | map(attribute='attributes.current_temperature') | list %}
+          {% if temps | count > 0 %}
+            {{ (temps | sum / temps | count) | round(1) }}°C
+          {% else %}
+            N/A
+          {% endif %}
+        secondary: Moy. maison
+        icon: mdi:thermometer
+        icon_color: blue
+        layout: vertical
+      - type: custom:mushroom-template-card
+        primary: €€€
+        secondary: Économies
+        icon: mdi:cash-multiple
+        icon_color: green
+        layout: vertical
+        card_mod:
+          style: |
+            ha-card {
+              background: rgba(76, 175, 80, 0.1);
+            }
+  - type: markdown
+    content: |
+      **🌡️ Code Couleur Températures :**  
+      🔵 Froid (<18°C) • 🟢 Confort (18-22°C) • 🟠 Chaud (>22°C) • 🔴 Capteur HS
+    card_mod:
+      style: |
+        ha-card {
+          background: rgba(255, 255, 255, 0.05);
+          padding: 8px;
+          font-size: 12px;
+          text-align: center;
+        }
+  - type: custom:mushroom-title-card
+    title: 🏠 Contrôles par Pièce
+  - type: custom:stack-in-card
+    mode: horizontal
+    cards:
+      - type: custom:mushroom-climate-card
+        entity: climate.optimizer_sejour
+        name: Séjour
+        icon: mdi:sofa
+        show_temperature_control: true
+        hvac_modes:
+          - heat
+          - cool
+          - "off"
+        layout: horizontal
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('climate.optimizer_sejour', 'heat') %}
+                background: linear-gradient(90deg, rgba(255,152,0,0.2) 0%, rgba(255,87,34,0.1) 100%);
+                border-left: 4px solid orange;
+              {% elif is_state('climate.optimizer_sejour', 'cool') %}
+                background: linear-gradient(90deg, rgba(33,150,243,0.2) 0%, rgba(3,169,244,0.1) 100%);
+                border-left: 4px solid blue;
+              {% endif %}
+            }
+      - type: custom:mushroom-template-card
+        primary: |
+          {{ state_attr('climate.optimizer_sejour', 'current_temperature') }}°C
+        secondary: |
+          {{ states('sensor.optimizer_sejour') }}
+        icon: mdi:thermometer
+        icon_color: >
+          {% set temp = state_attr('climate.optimizer_sejour',
+          'current_temperature') %}
+
+          {% if temp == none %}
+            red
+          {% elif temp < 18 %}
+            blue
+          {% elif temp > 22 %}
+            orange
+          {% else %}
+            green
+          {% endif %}
+        layout: vertical
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('sensor.optimizer_sejour', 'Error') %}
+                background: rgba(244, 67, 54, 0.1);
+              {% endif %}
+            }
+  - type: custom:stack-in-card
+    mode: horizontal
+    cards:
+      - type: custom:mushroom-climate-card
+        entity: climate.optimizer_bureau
+        name: Bureau
+        icon: mdi:desk
+        show_temperature_control: true
+        layout: horizontal
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('climate.optimizer_bureau', 'heat') %}
+                background: linear-gradient(90deg, rgba(255,152,0,0.2) 0%, rgba(255,87,34,0.1) 100%);
+                border-left: 4px solid orange;
+              {% endif %}
+            }
+      - type: custom:mushroom-template-card
+        primary: >
+          {% set temp = state_attr('climate.optimizer_bureau',
+          'current_temperature') %}
+
+          {% if temp == none %}N/A{% else %}{{ temp }}°C{% endif %}
+        secondary: |
+          {{ states('sensor.optimizer_bureau') }}
+        icon: mdi:thermometer
+        icon_color: >
+          {% set temp = state_attr('climate.optimizer_bureau',
+          'current_temperature') %}
+
+          {% if temp == none %}
+            red
+          {% elif temp < 18 %}
+            blue
+          {% elif temp > 22 %}
+            orange
+          {% else %}
+            green
+          {% endif %}
+        layout: vertical
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('sensor.optimizer_bureau', 'Error') %}
+                background: rgba(244, 67, 54, 0.1);
+              {% endif %}
+            }
+  - type: custom:stack-in-card
+    mode: horizontal
+    cards:
+      - type: custom:mushroom-climate-card
+        entity: climate.optimizer_parents
+        name: Parents
+        icon: mdi:bed-double
+        show_temperature_control: true
+        hvac_modes:
+          - heat
+          - cool
+          - "off"
+        layout: horizontal
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('climate.optimizer_parents', 'heat') %}
+                background: linear-gradient(90deg, rgba(255,152,0,0.2) 0%, rgba(255,87,34,0.1) 100%);
+                border-left: 4px solid orange;
+              {% elif is_state('climate.optimizer_parents', 'cool') %}
+                background: linear-gradient(90deg, rgba(33,150,243,0.2) 0%, rgba(3,169,244,0.1) 100%);
+                border-left: 4px solid blue;
+              {% endif %}
+            }
+      - type: custom:mushroom-template-card
+        primary: |
+          {{ state_attr('climate.optimizer_parents', 'current_temperature') }}°C
+        secondary: |
+          {{ states('sensor.optimizer_parents') }}
+        icon: mdi:thermometer
+        icon_color: >
+          {% set temp = state_attr('climate.optimizer_parents',
+          'current_temperature') %}
+
+          {% if temp == none %}
+            red
+          {% elif temp < 18 %}
+            blue
+          {% elif temp > 22 %}
+            orange
+          {% else %}
+            green
+          {% endif %}
+        layout: vertical
+  - type: custom:stack-in-card
+    mode: horizontal
+    cards:
+      - type: custom:mushroom-climate-card
+        entity: climate.optimizer_hugo
+        name: Hugo
+        icon: mdi:baby-face
+        show_temperature_control: true
+        hvac_modes:
+          - heat
+          - cool
+          - "off"
+        layout: horizontal
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('climate.optimizer_hugo', 'heat') %}
+                background: linear-gradient(90deg, rgba(255,152,0,0.2) 0%, rgba(255,87,34,0.1) 100%);
+                border-left: 4px solid orange;
+              {% elif is_state('climate.optimizer_hugo', 'cool') %}
+                background: linear-gradient(90deg, rgba(33,150,243,0.2) 0%, rgba(3,169,244,0.1) 100%);
+                border-left: 4px solid blue;
+              {% endif %}
+            }
+      - type: custom:mushroom-template-card
+        primary: >
+          {% set temp = state_attr('climate.optimizer_hugo',
+          'current_temperature') %}
+
+          {% if temp == none %}N/A{% else %}{{ temp }}°C{% endif %}
+        secondary: |
+          {{ states('sensor.optimizer_hugo') }}
+        icon: mdi:thermometer
+        icon_color: >
+          {% set temp = state_attr('climate.optimizer_hugo',
+          'current_temperature') %}
+
+          {% if temp == none %}
+            red
+          {% elif temp < 18 %}
+            blue
+          {% elif temp > 22 %}
+            orange
+          {% else %}
+            green
+          {% endif %}
+        layout: vertical
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('sensor.optimizer_hugo', 'Error') %}
+                background: rgba(244, 67, 54, 0.1);
+              {% endif %}
+            }
+  - type: custom:stack-in-card
+    mode: horizontal
+    cards:
+      - type: custom:mushroom-climate-card
+        entity: climate.optimizer_lea
+        name: Léa
+        icon: mdi:baby-face-outline
+        show_temperature_control: true
+        hvac_modes:
+          - heat
+          - cool
+          - "off"
+        layout: horizontal
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('climate.optimizer_lea', 'heat') %}
+                background: linear-gradient(90deg, rgba(255,152,0,0.2) 0%, rgba(255,87,34,0.1) 100%);
+                border-left: 4px solid orange;
+              {% elif is_state('climate.optimizer_lea', 'cool') %}
+                background: linear-gradient(90deg, rgba(33,150,243,0.2) 0%, rgba(3,169,244,0.1) 100%);
+                border-left: 4px solid blue;
+              {% endif %}
+            }
+      - type: custom:mushroom-template-card
+        primary: |
+          {{ state_attr('climate.optimizer_lea', 'current_temperature') }}°C
+        secondary: |
+          {{ states('sensor.optimizer_lea') }}
+        icon: mdi:thermometer
+        icon_color: >
+          {% set temp = state_attr('climate.optimizer_lea',
+          'current_temperature') %}
+
+          {% if temp == none %}
+            red
+          {% elif temp < 18 %}
+            blue
+          {% elif temp > 22 %}
+            orange
+          {% else %}
+            green
+          {% endif %}
+        layout: vertical
+  - type: custom:mushroom-title-card
+    title: 🚿 Salles d'Eau
+  - type: custom:layout-card
+    layout_type: grid
+    layout_options:
+      grid-template-columns: repeat(2, 1fr)
+    cards:
+      - type: custom:stack-in-card
+        mode: vertical
+        cards:
+          - type: custom:mushroom-climate-card
+            entity: climate.optimizer_sdb
+            name: Salle de Bain
+            icon: mdi:shower
+            show_temperature_control: true
+            card_mod:
+              style: |
+                ha-card {
+                  {% if is_state('climate.optimizer_sdb', 'heat') %}
+                    border-left: 4px solid orange;
+                  {% endif %}
+                }
+          - type: custom:mushroom-template-card
+            primary: |
+              {{ state_attr('climate.optimizer_sdb', 'current_temperature') }}°C
+            secondary: |
+              {{ states('sensor.optimizer_sdb') }}
+            icon: mdi:thermometer
+            icon_color: >
+              {% set temp = state_attr('climate.optimizer_sdb',
+              'current_temperature') %}
+
+              {% if temp == none %}
+                red
+              {% elif temp < 18 %}
+                blue
+              {% elif temp > 22 %}
+                orange
+              {% else %}
+                green
+              {% endif %}
+            layout: horizontal
+      - type: custom:stack-in-card
+        mode: vertical
+        cards:
+          - type: custom:mushroom-climate-card
+            entity: climate.optimizer_sdd
+            name: Salle de Douche
+            icon: mdi:shower-head
+            show_temperature_control: true
+            card_mod:
+              style: |
+                ha-card {
+                  {% if is_state('climate.optimizer_sdd', 'heat') %}
+                    border-left: 4px solid orange;
+                  {% endif %}
+                }
+          - type: custom:mushroom-template-card
+            primary: >
+              {% set temp = state_attr('climate.optimizer_sdd',
+              'current_temperature') %}
+
+              {% if temp == none %}N/A{% else %}{{ temp }}°C{% endif %}
+            secondary: |
+              {{ states('sensor.optimizer_sdd') }}
+            icon: mdi:thermometer
+            icon_color: >
+              {% set temp = state_attr('climate.optimizer_sdd',
+              'current_temperature') %}
+
+              {% if temp == none %}
+                red
+              {% elif temp < 18 %}
+                blue
+              {% elif temp > 22 %}
+                orange
+              {% else %}
+                green
+              {% endif %}
+            layout: horizontal
+            card_mod:
+              style: |
+                ha-card {
+                  {% if is_state('sensor.optimizer_sdd', 'Error') %}
+                    background: rgba(244, 67, 54, 0.1);
+                  {% endif %}
+                }
+  - type: custom:mushroom-title-card
+    title: 📈 Historique 24h
+  - type: custom:apexcharts-card
+    graph_span: 24h
+    update_interval: 1min
+    apex_config:
+      chart:
+        height: 200px
+      stroke:
+        width: 2
+    series:
+      - entity: climate.optimizer_sejour
+        attribute: current_temperature
+        name: Séjour
+        color: "#FF5722"
+      - entity: climate.optimizer_parents
+        attribute: current_temperature
+        name: Parents
+        color: "#2196F3"
+      - entity: climate.optimizer_hugo
+        attribute: current_temperature
+        name: Hugo
+        color: "#4CAF50"
+      - entity: climate.optimizer_lea
+        attribute: current_temperature
+        name: Léa
+        color: "#9C27B0"
+      - entity: climate.optimizer_bureau
+        attribute: current_temperature
+        name: Bureau
+        color: "#009688"
+      - entity: climate.optimizer_sdd
+        attribute: current_temperature
+        name: Salle de Douche
+        color: "#FF9800"
+      - entity: climate.optimizer_sdb
+        attribute: current_temperature
+        name: Salle de Bain
+        color: "#00BCD4"
+  - type: conditional
+    conditions:
+      - condition: state
+        entity: sensor.optimizer_bureau
+        state: Error
+      - condition: state
+        entity: sensor.optimizer_hugo
+        state: Error
+      - condition: state
+        entity: sensor.optimizer_sdd
+        state: Error
+    card:
+      type: custom:mushroom-template-card
+      primary: ⚠️ Capteurs Hors Service
+      secondary: >
+        {% set errors = states.sensor | selectattr('entity_id', 'search',
+        'optimizer') 
+                        | selectattr('state', 'eq', 'Error') | map(attribute='name') | list %}
+        {{ errors | join(', ') }}
+      icon: mdi:alert-circle
+      icon_color: red
+      card_mod:
+        style: |
+          ha-card {
+            background: rgba(244, 67, 54, 0.15);
+            animation: blink 2s ease-in-out infinite;
+          }
+          @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+          }
+card_mod:
+  style: |
+    ha-card {
+      border-radius: 15px;
+      overflow: hidden;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
