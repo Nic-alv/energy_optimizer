@@ -1,5 +1,3 @@
-# /config/custom_components/energy_optimizer/climate.py
-
 import logging
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
@@ -11,7 +9,7 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature, PRECISION_T
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from .const import DOMAIN, CONF_ROOM_NAME, CONF_TEMP_SENSOR
+from .const import DOMAIN, CONF_ROOM_NAME, CONF_TEMP_SENSOR, CONF_CLIMATE_AC
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,8 +35,17 @@ class EnergyOptimizerVirtualThermostat(ClimateEntity):
         self._attr_unique_id = f"energy_optimizer_climate_{entry_id}_{room_idx}"
         
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
-        # NOUVEAU : On supporte HEAT (Hiver) et COOL (Eté)
-        self._attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
+        
+        # --- DÉTECTION DYNAMIQUE DES MODES ---
+        # Par défaut : Off et Heat
+        modes = [HVACMode.OFF, HVACMode.HEAT]
+        
+        # Si la pièce a un AC, on ajoute le mode Cool
+        if room_config.get(CONF_CLIMATE_AC):
+            modes.append(HVACMode.COOL)
+            
+        self._attr_hvac_modes = modes
+        
         self._attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.TURN_OFF | ClimateEntityFeature.TURN_ON
         self._attr_target_temperature_step = 0.5
         self._attr_precision = PRECISION_TENTHS

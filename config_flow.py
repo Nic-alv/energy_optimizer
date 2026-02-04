@@ -83,6 +83,9 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             if selected == "add_room":
                 return await self.async_step_room_name()
             
+            elif selected == "delete_room":  # <--- NOUVELLE ACTION
+                return await self.async_step_delete_room()
+            
             elif selected == "global_settings":
                 return await self.async_step_global_settings()
             
@@ -91,7 +94,6 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_room_config()
             
             elif selected == "save":
-                # La sauvegarde est déjà faite, on ferme juste.
                 return self.async_create_entry(title="", data={**self.options, CONF_ROOMS: self.rooms})
 
         select_options = [
@@ -99,6 +101,10 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             {"value": "add_room", "label": "➕ Ajouter une pièce"}
         ]
         
+        # On n'affiche le bouton supprimer que s'il y a des pièces
+        if len(self.rooms) > 0:
+            select_options.append({"value": "delete_room", "label": "🗑️ Supprimer une pièce"})
+
         for idx, room in enumerate(self.rooms):
             name = room.get(CONF_ROOM_NAME, f"Pièce {idx+1}")
             select_options.append({"value": f"edit_{idx}", "label": f"✏️ {name}"})
@@ -107,10 +113,35 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(step_id="menu", data_schema=vol.Schema({vol.Required("menu_selection"): selector.SelectSelector(selector.SelectSelectorConfig(options=select_options, mode="list"))}))
 
+    async def async_step_delete_room(self, user_input=None):
+        """Suppression d'une pièce."""
+        if user_input is not None:
+            idx_to_delete = int(user_input["room_to_delete"])
+            # On retire la pièce de la liste
+            if 0 <= idx_to_delete < len(self.rooms):
+                self.rooms.pop(idx_to_delete)
+                self._save_changes() # Sauvegarde immédiate
+            return await self.async_step_menu()
+
+        # Création de la liste des pièces pour le sélecteur
+        room_options = []
+        for idx, room in enumerate(self.rooms):
+            name = room.get(CONF_ROOM_NAME, f"Pièce {idx+1}")
+            room_options.append({"value": str(idx), "label": name})
+
+        return self.async_show_form(
+            step_id="delete_room", 
+            data_schema=vol.Schema({
+                vol.Required("room_to_delete"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=room_options, mode="list")
+                )
+            })
+        )
+
     async def async_step_global_settings(self, user_input=None):
         if user_input is not None:
             self.options.update(user_input)
-            self._save_changes() # <--- SAUVEGARDE IMMEDIATE
+            self._save_changes()
             return await self.async_step_menu()
 
         current_grid = self.options.get(CONF_GRID_POWER_ENTITY, self._config_entry.data.get(CONF_GRID_POWER_ENTITY))
@@ -138,7 +169,6 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             self.rooms.append({CONF_ROOM_NAME: user_input[CONF_ROOM_NAME]})
             self.current_room_id = len(self.rooms) - 1
-            # On ne sauvegarde pas encore, on attend la config
             return await self.async_step_room_config()
         return self.async_show_form(step_id="room_name", data_schema=vol.Schema({vol.Required(CONF_ROOM_NAME): str}))
 
@@ -152,7 +182,6 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             if user_input.get(CONF_CLIMATE_AC):
                 return await self.async_step_room_cop()
             
-            # Si pas d'AC, la pièce est finie -> SAUVEGARDE IMMEDIATE
             self._save_changes() 
             return await self.async_step_menu()
 
@@ -168,7 +197,7 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
     async def async_step_room_cop(self, user_input=None):
         if user_input is not None:
             self.rooms[self.current_room_id].update(user_input)
-            self._save_changes() # <--- SAUVEGARDE IMMEDIATE
+            self._save_changes() 
             return await self.async_step_menu()
 
         room = self.rooms[self.current_room_id]

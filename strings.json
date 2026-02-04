@@ -60,6 +60,13 @@
           "room_name": "Nom de la pièce"
         }
       },
+      "delete_room": {
+        "title": "Supprimer une Pièce",
+        "description": "Attention : La suppression est immédiate et définitive.",
+        "data": {
+          "room_to_delete": "Sélectionnez la pièce à supprimer"
+        }
+      },
       "room_config": {
         "title": "Appareils de la Pièce",
         "description": "Sélectionnez les équipements. Si une pièce n'a pas de gaz ou pas d'AC, laissez le champ vide.",
