@@ -1,5 +1,3 @@
-# /config/custom_components/energy_optimizer/config_flow.py
-
 import voluptuous as vol
 import copy
 from homeassistant import config_entries
@@ -67,30 +65,52 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
         self.rooms = copy.deepcopy(self.options.get(CONF_ROOMS, []))
         self.current_room_id = None
 
+    def _save_changes(self):
+        """Sauvegarde immédiate sur le disque (Auto-Save)."""
+        new_data = {**self.options, CONF_ROOMS: self.rooms}
+        self.hass.config_entries.async_update_entry(
+            self._config_entry,
+            options=new_data
+        )
+
     async def async_step_init(self, user_input=None):
         return await self.async_step_menu()
 
     async def async_step_menu(self, user_input=None):
         if user_input is not None:
             selected = user_input.get("menu_selection")
-            if selected == "add_room": return await self.async_step_room_name()
-            elif selected == "global_settings": return await self.async_step_global_settings()
+            
+            if selected == "add_room":
+                return await self.async_step_room_name()
+            
+            elif selected == "global_settings":
+                return await self.async_step_global_settings()
+            
             elif selected.startswith("edit_"):
                 self.current_room_id = int(selected.split("_")[1])
                 return await self.async_step_room_config()
-            else: return self.async_create_entry(title="", data={**self.options, CONF_ROOMS: self.rooms})
+            
+            elif selected == "save":
+                # La sauvegarde est déjà faite, on ferme juste.
+                return self.async_create_entry(title="", data={**self.options, CONF_ROOMS: self.rooms})
 
-        select_options = [{"value": "global_settings", "label": "⚙️ Réglages Globaux"}, {"value": "add_room", "label": "➕ Ajouter une pièce"}]
+        select_options = [
+            {"value": "global_settings", "label": "⚙️ Réglages Globaux"},
+            {"value": "add_room", "label": "➕ Ajouter une pièce"}
+        ]
+        
         for idx, room in enumerate(self.rooms):
             name = room.get(CONF_ROOM_NAME, f"Pièce {idx+1}")
             select_options.append({"value": f"edit_{idx}", "label": f"✏️ {name}"})
-        select_options.append({"value": "save", "label": "💾 Sauvegarder et Quitter"})
+            
+        select_options.append({"value": "save", "label": "✅ Fermer (Tout est sauvegardé)"})
 
         return self.async_show_form(step_id="menu", data_schema=vol.Schema({vol.Required("menu_selection"): selector.SelectSelector(selector.SelectSelectorConfig(options=select_options, mode="list"))}))
 
     async def async_step_global_settings(self, user_input=None):
         if user_input is not None:
             self.options.update(user_input)
+            self._save_changes() # <--- SAUVEGARDE IMMEDIATE
             return await self.async_step_menu()
 
         current_grid = self.options.get(CONF_GRID_POWER_ENTITY, self._config_entry.data.get(CONF_GRID_POWER_ENTITY))
@@ -99,7 +119,6 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
         current_summer_mode = self.options.get(CONF_SUMMER_MODE_ENTITY)
 
         schema = vol.Schema({
-            # NOUVEAU : Switch Été
             vol.Optional(CONF_SUMMER_MODE_ENTITY, default=current_summer_mode): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["input_boolean", "switch", "input_select"])
             ),
@@ -115,11 +134,11 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
         })
         return self.async_show_form(step_id="global_settings", data_schema=schema)
 
-    # ... (Le reste des fonctions room_name, room_config, room_cop est identique à l'étape précédente) ...
     async def async_step_room_name(self, user_input=None):
         if user_input is not None:
             self.rooms.append({CONF_ROOM_NAME: user_input[CONF_ROOM_NAME]})
             self.current_room_id = len(self.rooms) - 1
+            # On ne sauvegarde pas encore, on attend la config
             return await self.async_step_room_config()
         return self.async_show_form(step_id="room_name", data_schema=vol.Schema({vol.Required(CONF_ROOM_NAME): str}))
 
@@ -127,9 +146,16 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             if not user_input.get(CONF_CLIMATE_GAZ) and not user_input.get(CONF_CLIMATE_AC):
                 return await self.async_step_room_config(errors={"base": "no_heater_selected"})
+            
             self.rooms[self.current_room_id].update(user_input)
-            if user_input.get(CONF_CLIMATE_AC): return await self.async_step_room_cop()
+            
+            if user_input.get(CONF_CLIMATE_AC):
+                return await self.async_step_room_cop()
+            
+            # Si pas d'AC, la pièce est finie -> SAUVEGARDE IMMEDIATE
+            self._save_changes() 
             return await self.async_step_menu()
+
         room = self.rooms[self.current_room_id]
         schema_dict = {}
         args_gaz = {'default': room.get(CONF_CLIMATE_GAZ)} if room.get(CONF_CLIMATE_GAZ) else {}
@@ -142,7 +168,9 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
     async def async_step_room_cop(self, user_input=None):
         if user_input is not None:
             self.rooms[self.current_room_id].update(user_input)
+            self._save_changes() # <--- SAUVEGARDE IMMEDIATE
             return await self.async_step_menu()
+
         room = self.rooms[self.current_room_id]
         schema = vol.Schema({
             vol.Required(CONF_COP_M15, default=room.get(CONF_COP_M15, 2.0)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
