@@ -11,7 +11,7 @@ CONF_GRID_POWER_ENTITY = "grid_power_entity"
 CONF_BATTERY_THRESH_ENTITY = "battery_thresh_entity"
 CONF_HYSTERESIS = "hysteresis"
 
-# NOUVEAU : Entité Switch Été/Hiver
+# Entité Switch Été/Hiver
 CONF_SUMMER_MODE_ENTITY = "summer_mode_entity"
 
 CONF_GAZ_PRICE_ENTITY = "gaz_price_entity"
@@ -38,6 +38,3 @@ CONF_TEMP_SENSOR = "temp_sensor"
 # Courbe COP
 CONF_COP_M15 = "cop_m15"; CONF_COP_M7 = "cop_m7"; CONF_COP_0 = "cop_0"
 CONF_COP_7 = "cop_7"; CONF_COP_15 = "cop_15"
-
-# Délai minimum de fonctionnement AC (anti-cyclage)
-CONF_AC_MIN_RUNTIME = "ac_min_runtime"

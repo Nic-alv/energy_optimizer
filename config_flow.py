@@ -1,3 +1,5 @@
+# /config/custom_components/energy_optimizer/config_flow.py
+
 import voluptuous as vol
 import copy
 from homeassistant import config_entries
@@ -83,7 +85,7 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             if selected == "add_room":
                 return await self.async_step_room_name()
             
-            elif selected == "delete_room":  # <--- NOUVELLE ACTION
+            elif selected == "delete_room":
                 return await self.async_step_delete_room()
             
             elif selected == "global_settings":
@@ -101,7 +103,6 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             {"value": "add_room", "label": "➕ Ajouter une pièce"}
         ]
         
-        # On n'affiche le bouton supprimer que s'il y a des pièces
         if len(self.rooms) > 0:
             select_options.append({"value": "delete_room", "label": "🗑️ Supprimer une pièce"})
 
@@ -114,16 +115,13 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id="menu", data_schema=vol.Schema({vol.Required("menu_selection"): selector.SelectSelector(selector.SelectSelectorConfig(options=select_options, mode="list"))}))
 
     async def async_step_delete_room(self, user_input=None):
-        """Suppression d'une pièce."""
         if user_input is not None:
             idx_to_delete = int(user_input["room_to_delete"])
-            # On retire la pièce de la liste
             if 0 <= idx_to_delete < len(self.rooms):
                 self.rooms.pop(idx_to_delete)
-                self._save_changes() # Sauvegarde immédiate
+                self._save_changes() 
             return await self.async_step_menu()
 
-        # Création de la liste des pièces pour le sélecteur
         room_options = []
         for idx, room in enumerate(self.rooms):
             name = room.get(CONF_ROOM_NAME, f"Pièce {idx+1}")
@@ -207,6 +205,6 @@ class EnergyOptimizerOptionsFlow(config_entries.OptionsFlow):
             vol.Required(CONF_COP_0,   default=room.get(CONF_COP_0, 3.2)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
             vol.Required(CONF_COP_7,   default=room.get(CONF_COP_7, 4.0)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
             vol.Required(CONF_COP_15,  default=room.get(CONF_COP_15, 5.0)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=10, step=0.1, mode="box")),
-            vol.Required(CONF_AC_MIN_RUNTIME, default=room.get(CONF_AC_MIN_RUNTIME, 5)): selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=60, step=1, mode="slider", unit_of_measurement="min")),
+            # Removed AC Min Runtime
         })
         return self.async_show_form(step_id="room_cop", data_schema=schema)
