@@ -177,7 +177,8 @@ class EnergyManager:
             if current_temp is None:
                 if clim_ac: await self._set_climate(clim_ac, "off", None)
                 if clim_gaz: 
-                    await self._set_climate(clim_gaz, "heat", 16)
+                    if room.get(CONF_CLIMATE_GAZ) == 'climate.thermostat_hc1':
+                        await self._set_climate(clim_gaz, "heat", 16)
                     await self._set_climate(clim_gaz, "off", None)
                 switch.update_from_manager(None, HVACAction.OFF, "Sensor error")
                 self.room_statuses[idx] = {"active_source": "Error", "reason": "Capteur HS"}
@@ -187,7 +188,8 @@ class EnergyManager:
             if requested_mode == HVACMode.OFF:
                 if clim_ac: await self._set_climate(clim_ac, "off", None)
                 if clim_gaz: 
-                    await self._set_climate(clim_gaz, "heat", 16)
+                    if room.get(CONF_CLIMATE_GAZ) == 'climate.thermostat_hc1':
+                        await self._set_climate(clim_gaz, "heat", 16)
                     await self._set_climate(clim_gaz, "off", None)
                 switch.update_from_manager(current_temp, HVACAction.OFF, "VT OFF")
                 self.room_statuses[idx] = {"active_source": "Off (VT)", "reason": "Versatile Thermostat: OFF"}
@@ -198,7 +200,8 @@ class EnergyManager:
             if not is_summer and current_temp >= (target_temp + self.hysteresis):
                 if clim_ac: await self._set_climate(clim_ac, "off", None)
                 if clim_gaz: 
-                    await self._set_climate(clim_gaz, "heat", 16)
+                    if room.get(CONF_CLIMATE_GAZ) == 'climate.thermostat_hc1':
+                        await self._set_climate(clim_gaz, "heat", 16)
                     await self._set_climate(clim_gaz, "off", None)
                 switch.update_from_manager(current_temp, HVACAction.IDLE, "Temp OK")
                 self.room_statuses[idx] = {"active_source": "Off (Temp OK)", "reason": "Température atteinte"}
@@ -237,7 +240,8 @@ class EnergyManager:
                 if should_heat_ac:
                     await self._set_climate(clim_ac, "heat", target_temp)
                     if clim_gaz: 
-                        await self._set_climate(clim_gaz, "heat", 16)
+                        if room.get(CONF_CLIMATE_GAZ) == 'climate.thermostat_hc1':
+                            await self._set_climate(clim_gaz, "heat", 16)
                         await self._set_climate(clim_gaz, "off", None)
                     switch.update_from_manager(current_temp, HVACAction.HEATING, reason)
                     self.room_statuses[idx] = {"active_source": "AC (Heat)", "reason": reason, "cost_ac": cout_pac_kwh, "cost_gas": prix_gaz}
